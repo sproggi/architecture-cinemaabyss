@@ -1,46 +1,43 @@
-@startuml cinema_deep_containers
+@startuml cinema_deep_strangler
 
 !define RELATIVE_INCLUDE true
 !include ./c4_templates/C4_Container.puml
 
-title Диаграмма контейнеров - КиноБездна (To-Be Архитектура)
+title Диаграмма контейнеров - КиноБездна (Strangler Fig Pattern)
 
 ' === Внешние системы ===
 Person(user, "Пользователи", "Конечные пользователи сервиса")
-System_Ext(payment_system, "Платёжная система", "Внешний провайдер платежей (Stripe/CloudPayments)")
-System_Ext(recommendation_engine, "Рекомендательный движок", "ML-сервис на Python для персональных рекомендаций")
+System_Ext(payment_system, "Платёжная система", "Внешний провайдер платежей")
+System_Ext(recommendation_engine, "Рекомендательный движок", "ML-сервис рекомендаций")
 
 ' === Граница системы ===
 System_Boundary(cinema_deep, "КиноБездна") {
     
-    ' === Единая точка входа ===
-    Container(api_gateway, "API Gateway", "Go + Gin", "Единая точка входа, маршрутизация, аутентификация, rate limiting")
+    ' === НОВЫЕ МИКРОСЕРВИСЫ (Strangler Fig) ===
+    Container(api_gateway, "API Gateway", "Go + Gin", "Единая точка входа, маршрутизация, аутентификация")
+    Container(movies, "Video Service", "Go (REST)", "Управление видео, транскодинг, стриминг")
+    Container(events_service, "Events Service", "Go (REST)", "Сбор и обработка событий (MVP)")
+    Container(queue, "Message Bus", "Kafka", "Событийная шина")
     
-    ' === Домены ===
-    Container(user_service, "User Service", "Go (REST)", "Управление пользователями, профилями, аутентификация")
-    Container(content_service, "Content Service", "Go (REST)", "Метаданные: фильмы, жанры, актёры, оценки")
-    Container(movies, "Video Service", "Go (REST)", "Управление видео-файлами, транскодинг, стриминг")
-    Container(subscription_service, "Subscription Service", "Go (REST)", "Подписки, скидки, тарифы")
-    Container(payment_service, "Payment Service", "Go (REST)", "Обработка платежей, транзакции")
-    Container(favorites_service, "Favorites Service", "Go (REST)", "Избранное, папки, плейлисты")
-    Container(notification_service, "Notification Service", "Go", "Уведомления (email, push, in-app)")
+    ' === МОНОЛИТ (остаётся пока) ===
+    Container(monolith, "Monolith", "Go (REST)", "User/Content/Subscription/Payment/Favorites")
+    
+    ' === Базы данных монолита ===
+    ContainerDb(postgres_monolith, "PostgreSQL Monolith", "БД", "Все данные (пользователи, фильмы, подписки)")
+    
+    ' === Базы данных новых сервисов ===
+    ContainerDb(postgres_video, "PostgreSQL Video", "БД", "Метаданные видео, статусы транскодинга")
+    ContainerDb(postgres_events, "PostgreSQL Events", "БД", "События, логи, метрики")
     
     ' === Инфраструктура ===
-    ContainerDb(postgres_user, "PostgreSQL User", "БД", "Пользователи, профили, сессии")
-    ContainerDb(postgres_content, "PostgreSQL Content", "БД", "Метаданные фильмов, жанры, актёры")
-    ContainerDb(postgres_subscription, "PostgreSQL Subscription", "БД", "Подписки, скидки, тарифы")
-    ContainerDb(postgres_payment, "PostgreSQL Payment", "БД", "Транзакции, платежи, история")
-    ContainerDb(postgres_favorites, "PostgreSQL Favorites", "БД", "Избранное, папки, оценки")
-    
-    Container(message_bus, "Message Bus", "Kafka", "Событийная шина для асинхронного взаимодействия")
-    Container(cache, "Redis Cluster", "Кеш", "Кеширование сессий, горячих данных")
-    Container(storage, "S3 Storage", "Объектное хранилище", "Хранение видео, постеров, превью")
+    Container(cache, "Redis Cluster", "Кеш", "Кеширование")
+    Container(storage, "S3 Storage", "Объектное хранилище", "Видео, постеры")
     
     ' === Клиентские приложения ===
     System_Ext(web, "Web App", "React SPA")
-    System_Ext(mobile, "Mobile App", "React Native / Swift")
-    System_Ext(tv, "Smart TV App", "React Native / Tizen")
-    System_Ext(console, "Console App", "React Native / PlayStation SDK")
+    System_Ext(mobile, "Mobile App", "React Native")
+    System_Ext(tv, "Smart TV App", "React Native")
+    System_Ext(console, "Console App", "React Native")
 }
 
 ' === Пользовательские связи ===
@@ -50,67 +47,41 @@ Rel(user, tv, "Использует", "HTTPS")
 Rel(user, console, "Использует", "HTTPS")
 
 ' === Клиенты → API Gateway ===
-Rel(web, api_gateway, "Взаимодействует", "HTTPS/WSS")
-Rel(mobile, api_gateway, "Взаимодействует", "HTTPS/WSS")
-Rel(tv, api_gateway, "Взаимодействует", "HTTPS/WSS")
-Rel(console, api_gateway, "Взаимодействует", "HTTPS/WSS")
+Rel(web, api_gateway, "Все запросы", "HTTPS/REST")
+Rel(mobile, api_gateway, "Все запросы", "HTTPS/REST")
+Rel(tv, api_gateway, "Все запросы", "HTTPS/REST")
+Rel(console, api_gateway, "Все запросы", "HTTPS/REST")
 
-' === API Gateway → Сервисы ===
-Rel(api_gateway, user_service, "Маршрутизирует", "HTTP/REST")
-Rel(api_gateway, content_service, "Маршрутизирует", "HTTP/REST")
-Rel(api_gateway, movies, "Маршрутизирует", "HTTP/REST")
-Rel(api_gateway, subscription_service, "Маршрутизирует", "HTTP/REST")
-Rel(api_gateway, payment_service, "Маршрутизирует", "HTTP/REST")
-Rel(api_gateway, favorites_service, "Маршрутизирует", "HTTP/REST")
+' === API Gateway → Маршрутизация ===
+Rel(api_gateway, movies, "Маршруты /api/v1/video/*", "REST")
+Rel(api_gateway, events_service, "Маршруты /api/v1/events/*", "REST")
+Rel(api_gateway, monolith, "Маршруты /api/v1/* (остальные)", "REST")
 
-' === Сервисы → Базы данных ===
-Rel(user_service, postgres_user, "Читает/пишет", "SQL")
-Rel(content_service, postgres_content, "Читает/пишет", "SQL")
-Rel(subscription_service, postgres_subscription, "Читает/пишет", "SQL")
-Rel(payment_service, postgres_payment, "Читает/пишет", "SQL")
-Rel(favorites_service, postgres_favorites, "Читает/пишет", "SQL")
-
-' === Видео-сервис ===
+' === Видео сервис ===
+Rel(movies, postgres_video, "Читает/пишет", "SQL")
 Rel(movies, storage, "Загружает/получает", "S3 API")
+Rel(movies, queue, "Публикует события видео", "Kafka")
 
-' === Кеширование ===
-Rel(user_service, cache, "Кеширует", "Redis Protocol")
-Rel(content_service, cache, "Кеширует", "Redis Protocol")
-Rel(subscription_service, cache, "Кеширует", "Redis Protocol")
+' === Events сервис (MVP) ===
+Rel(events_service, postgres_events, "Сохраняет события", "SQL")
+Rel(events_service, queue, "Потребляет события", "Kafka")
+Rel(events_service, queue, "Публикует события", "Kafka")
+Rel(events_service, monolith, "Запрашивает данные", "REST")
 
-' === Событийная шина ===
-Rel(user_service, message_bus, "Публикует события", "Kafka Protocol")
-Rel(content_service, message_bus, "Публикует события", "Kafka Protocol")
-Rel(movies, message_bus, "Публикует события", "Kafka Protocol")
-Rel(subscription_service, message_bus, "Публикует события", "Kafka Protocol")
-Rel(payment_service, message_bus, "Публикует события", "Kafka Protocol")
-Rel(favorites_service, message_bus, "Публикует события", "Kafka Protocol")
-
-Rel(message_bus, notification_service, "Доставляет события", "Kafka Protocol")
-Rel(message_bus, recommendation_engine, "Доставляет события", "Kafka Protocol")
+' === Монолит ===
+Rel(monolith, postgres_monolith, "Читает/пишет", "SQL")
+Rel(monolith, cache, "Кеширует", "Redis Protocol")
+Rel(monolith, queue, "Публикует события", "Kafka")
+Rel(monolith, payment_system, "Обрабатывает платежи", "HTTPS API")
 
 ' === Внешние интеграции ===
-Rel(payment_service, payment_system, "Инициирует платежи", "HTTPS API")
-Rel(recommendation_engine, api_gateway, "Возвращает рекомендации", "HTTP/REST")
-Rel(recommendation_engine, content_service, "Запрашивает метаданные", "HTTP/REST")
+Rel(recommendation_engine, api_gateway, "Возвращает рекомендации", "REST")
+Rel(queue, recommendation_engine, "Доставляет события", "Kafka")
 
-' === Синхронные межсервисные вызовы (критические) ===
-Rel(payment_service, subscription_service, "Проверяет подписку", "HTTP/REST")
-Rel(subscription_service, user_service, "Проверяет пользователя", "HTTP/REST")
-Rel(movies, content_service, "Получает метаданные", "HTTP/REST")
-
-' === Лейаут ===
-Lay_D(user, web)
-Lay_D(user, mobile)
-Lay_D(user, tv)
-Lay_D(user, console)
-
-Lay_D(api_gateway, user_service)
-Lay_D(api_gateway, subscription_service)
-Lay_D(api_gateway, content_service)
-
-Lay_D(payment_service, payment_system)
-Lay_D(movies, storage)
+' === Событийные потоки ===
+' Монолит публикует события в Kafka
+' Video Service публикует события
+' Events Service потребляет все события
 
 SHOW_LEGEND()
 
