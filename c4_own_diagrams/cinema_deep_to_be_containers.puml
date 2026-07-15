@@ -15,7 +15,7 @@ System_Boundary(cinema_deep, "КиноБездна") {
     
     ' === НОВЫЕ МИКРОСЕРВИСЫ (Strangler Fig) ===
     Container(api_gateway, "API Gateway", "Go + Gin", "Единая точка входа, маршрутизация, аутентификация")
-    Container(movies, "Video Service", "Go (REST)", "Управление видео, транскодинг, стриминг")
+    Container(movies, "Movies Service", "Go (REST)", "Управление видео, транскодинг, стриминг")
     Container(events_service, "Events Service", "Go (REST)", "Сбор и обработка событий (MVP)")
     Container(queue, "Message Bus", "Kafka", "Событийная шина")
     
