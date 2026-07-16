@@ -182,7 +182,7 @@ jobs:
         working-directory: tests/postman
         run: |
           # Run tests with Newman
-          npx newman run collection.json \
+          npx newman run CinemaAbyss.postman_collection.json \
             --environment local.environment.json \
             --reporters cli,json \
             --reporter-json-export ./reports/newman-report.json \
