@@ -183,7 +183,7 @@ jobs:
         run: |
           # Run tests with Newman
           npx newman run collection.json \
-            --environment environment.json \
+            --environment local.environment.json \
             --reporters cli,json \
             --reporter-json-export ./reports/newman-report.json \
             --timeout-request 30000 \
