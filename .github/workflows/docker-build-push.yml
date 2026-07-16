@@ -130,3 +130,88 @@ jobs:
           labels: ${{ steps.meta-proxy.outputs.labels }}
           cache-from: type=gha
           cache-to: type=gha,mode=max
+  
+  api-tests:
+    name: Run API Tests
+    runs-on: ubuntu-latest
+    needs: build-and-push
+    if: github.event_name != 'release'
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v3
+
+      - name: Set up Docker Compose
+        run: |
+          docker compose version
+
+      - name: Start services with Docker Compose
+        run: |
+          docker compose up -d
+          echo "Waiting for services to be ready..."
+          sleep 30
+          
+          # Check if services are healthy
+          docker compose ps
+          
+          # Wait for health checks
+          echo "Waiting for health checks..."
+          timeout=60
+          while [ $timeout -gt 0 ]; do
+            if docker compose ps --format json | grep -q '"Health":"healthy"'; then
+              echo "All services are healthy!"
+              break
+            fi
+            sleep 5
+            timeout=$((timeout - 5))
+            echo "Waiting for services... ($timeout seconds left)"
+          done
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v3
+        with:
+          node-version: '18'
+          cache: 'npm'
+          cache-dependency-path: tests/postman/package-lock.json
+
+      - name: Install Newman and dependencies
+        working-directory: tests/postman
+        run: npm install
+
+      - name: Run API tests
+        working-directory: tests/postman
+        run: |
+          # Run tests with Newman
+          npx newman run collection.json \
+            --environment environment.json \
+            --reporters cli,json \
+            --reporter-json-export ./reports/newman-report.json \
+            --timeout-request 30000 \
+            --timeout-script 10000 || true
+          
+          # Check if tests passed
+          if [ -f "./reports/newman-report.json" ]; then
+            FAILURES=$(jq '.run.failures | length' ./reports/newman-report.json)
+            if [ "$FAILURES" -eq 0 ]; then
+              echo "✅ All tests passed!"
+              exit 0
+            else
+              echo "❌ $FAILURES test(s) failed!"
+              exit 1
+            fi
+          else
+            echo "❌ No test report generated!"
+            exit 1
+          fi
+
+      - name: Upload test results
+        if: always()
+        uses: actions/upload-artifact@v3
+        with:
+          name: api-test-results
+          path: tests/postman/reports/
+
+      - name: Stop services
+        if: always()
+        run: docker compose down
+  
