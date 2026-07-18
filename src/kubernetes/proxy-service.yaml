@@ -10,11 +10,6 @@ spec:
   selector:
     matchLabels:
       app: proxy-service
-  strategy:
-    type: RollingUpdate
-    rollingUpdate:
-      maxSurge: 1
-      maxUnavailable: 0
   template:
     metadata:
       labels:
@@ -23,51 +18,49 @@ spec:
       containers:
       - name: proxy-service
         image: ghcr.io/sproggi/architecture-cinemaabyss/proxy-service:latest
-        imagePullPolicy: Always
         ports:
         - containerPort: 8000
         env:
         - name: PORT
           value: "8000"
-        - name: DB_CONNECTION_STRING
-          value: "postgres://$(DB_USER):$(DB_PASSWORD)@$(DB_HOST):$(DB_PORT)/$(DB_NAME)?sslmode=disable"
-        envFrom:
-        - configMapRef:
-            name: cinemaabyss-config
-        - secretRef:
-            name: cinemaabyss-secrets
+        - name: METRICS_PORT
+          value: "8001"
+        - name: JWT_SECRET
+          value: "your-super-secret-key-change-me"
+        - name: MONOLITH_URL
+          value: "http://monolith:8080"
+        - name: MOVIES_SERVICE_URL
+          value: "http://movies-service:8081"
+        - name: EVENTS_SERVICE_URL
+          value: "http://events-service:8082"
+        - name: REDIS_URL
+          value: "redis://redis:6379"
+        - name: KAFKA_BROKERS
+          value: "kafka:9092"
+        - name: ENABLE_GRADUAL_MIGRATION
+          value: "true"
+        - name: MOVIES_MIGRATION_PERCENT
+          value: "50"
         resources:
-          limits:
-            cpu: "300m"
-            memory: "256Mi"
           requests:
+            cpu: "50m"
+            memory: "64Mi"
+          limits:
             cpu: "100m"
             memory: "128Mi"
-        readinessProbe:
-          httpGet:
-            path: /api/proxy/health
-            port: 8000
-          initialDelaySeconds: 5
-          periodSeconds: 10
         livenessProbe:
           httpGet:
-            path: /api/proxy/health
+            path: /health
             port: 8000
           initialDelaySeconds: 15
           periodSeconds: 20
-      restartPolicy: Always
-      imagePullSecrets:
-        - name: dockerconfigjson
----
-apiVersion: v1
-kind: Service
-metadata:
-  name: proxy-service
-  namespace: cinemaabyss
-spec:
-  selector:
-    app: proxy-service
-  ports:
-  - port: 8000
-    targetPort: 8000
-  type: ClusterIP
+          timeoutSeconds: 5
+          failureThreshold: 3
+        readinessProbe:
+          httpGet:
+            path: /health
+            port: 8000
+          initialDelaySeconds: 5
+          periodSeconds: 10
+          timeoutSeconds: 5
+          failureThreshold: 3
