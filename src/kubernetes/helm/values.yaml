@@ -5,7 +5,8 @@ global:
 
 # Image pull secrets
 imagePullSecrets:
-  dockerconfigjson: ewoJImF1dGhzIjogewoJCSJnaGNyLmlvIjogewoJCQkiYXV0aCI6
+  dockerconfigjson: ewogICJhdXRocyI6IHsKICAgICJnaGNyLmlvIjogewogICAgICAiYXV0aCI6ICJjM0J5YjJkbmFUcG5hSEJmVUV4cVFVZEJiV0ZwVlhFMFJ6bGplWEJLUXpGWFJGbHVkbEkzTlRaUE5HTmhUVEJWIgogICAgfQogIH0KfQo=
+
 # Database configuration
 database:
   host: postgres
@@ -19,21 +20,20 @@ database:
     pullPolicy: IfNotPresent
   resources:
     limits:
-      cpu: 1000m
-      memory: 1Gi
+      cpu: 200m    
+      memory: 256Mi
     requests:
-      cpu: 500m
-      memory: 512Mi
+      cpu: 100m    
+      memory: 128Mi
   persistence:
-    enabled: true
-    size: 10Gi
-    accessMode: ReadWriteOnce
+    enabled: false 
+    
 
 # Monolith configuration
 monolith:
   enabled: true
   image:
-    repository: ghcr.io/db-exp/cinemaabysstest/monolith
+    repository: ghcr.io/sproggi/architecture-cinemaabyss/monolith
     tag: latest
     pullPolicy: Always
   replicas: 1
@@ -53,7 +53,7 @@ monolith:
 proxyService:
   enabled: true
   image:
-    repository: ghcr.io/db-exp/cinemaabysstest/proxy-service
+    repository: ghcr.io/sproggi/architecture-cinemaabyss/proxy-service
     tag: latest
     pullPolicy: Always
   replicas: 1
@@ -65,7 +65,7 @@ proxyService:
       cpu: 100m
       memory: 128Mi
   service:
-    port: 80
+    port: 8000
     targetPort: 8000
     type: ClusterIP
 
@@ -73,7 +73,7 @@ proxyService:
 moviesService:
   enabled: true
   image:
-    repository: ghcr.io/db-exp/cinemaabysstest/movies-service
+    repository: ghcr.io/sproggi/architecture-cinemaabyss/movies-service
     tag: latest
     pullPolicy: Always
   replicas: 1
@@ -93,10 +93,14 @@ moviesService:
 eventsService:
   enabled: true
   image:
-    repository: ghcr.io/db-exp/cinemaabysstest/events-service
+    repository: ghcr.io/sproggi/architecture-cinemaabyss/events-service
     tag: latest
     pullPolicy: Always
   replicas: 1
+  kafka:
+    brokers: "kafka.cinemaabyss.svc.cluster.local:9092"
+  redis:
+    url: "redis://redis:6379"
   resources:
     limits:
       cpu: 300m
@@ -169,14 +173,36 @@ ingress:
   hosts:
     - host: cinemaabyss.example.com
       paths:
-        - path: /
-          pathType: Prefix
-          service: proxy-service
-          port: 80
+        
+        # Events Service
         - path: /api/events
           pathType: Prefix
           service: events-service
           port: 8082
+
+        # Health Check для Proxy
+        - path: /health
+          pathType: Prefix
+          service: proxy-service
+          port: 8000
+
+        # Movies Service
+        - path: /api/movies
+          pathType: Prefix
+          service: movies-service
+          port: 8081
+
+        # Monolith
+        - path: /api/
+          pathType: Prefix
+          service: monolith
+          port: 8080
+        
+        # Proxy (API Gateway)
+        - path: /api/(.*)
+          pathType: ImplementationSpecific
+          service: proxy-service
+          port: 8000
 
 # Application configuration
 config:

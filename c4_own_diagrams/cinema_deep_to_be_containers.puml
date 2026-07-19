@@ -1,0 +1,88 @@
+@startuml cinema_deep_strangler
+
+!define RELATIVE_INCLUDE true
+!include ./c4_templates/C4_Container.puml
+
+title Диаграмма контейнеров - КиноБездна (Strangler Fig Pattern)
+
+' === Внешние системы ===
+Person(user, "Пользователи", "Конечные пользователи сервиса")
+System_Ext(payment_system, "Платёжная система", "Внешний провайдер платежей")
+System_Ext(recommendation_engine, "Рекомендательный движок", "ML-сервис рекомендаций")
+
+' === Граница системы ===
+System_Boundary(cinema_deep, "КиноБездна") {
+    
+    ' === НОВЫЕ МИКРОСЕРВИСЫ (Strangler Fig) ===
+    Container(api_gateway, "API Gateway", "Go + Gin", "Единая точка входа, маршрутизация, аутентификация")
+    Container(movies, "Movies Service", "Go (REST)", "Управление видео, транскодинг, стриминг")
+    Container(events_service, "Events Service", "Go (REST)", "Сбор и обработка событий (MVP)")
+    Container(queue, "Message Bus", "Kafka", "Событийная шина")
+    
+    ' === МОНОЛИТ (остаётся пока) ===
+    Container(monolith, "Monolith", "Go (REST)", "User/Content/Subscription/Payment/Favorites")
+    
+    ' === Базы данных монолита ===
+    ContainerDb(postgres_monolith, "PostgreSQL Monolith", "БД", "Все данные (пользователи, фильмы, подписки)")
+    
+    ' === Базы данных новых сервисов ===
+    ContainerDb(postgres_video, "PostgreSQL Video", "БД", "Метаданные видео, статусы транскодинга")
+    ContainerDb(postgres_events, "PostgreSQL Events", "БД", "События, логи, метрики")
+    
+    ' === Инфраструктура ===
+    Container(cache, "Redis Cluster", "Кеш", "Кеширование")
+    Container(storage, "S3 Storage", "Объектное хранилище", "Видео, постеры")
+    
+    ' === Клиентские приложения ===
+    System_Ext(web, "Web App", "React SPA")
+    System_Ext(mobile, "Mobile App", "React Native")
+    System_Ext(tv, "Smart TV App", "React Native")
+    System_Ext(console, "Console App", "React Native")
+}
+
+' === Пользовательские связи ===
+Rel(user, web, "Использует", "HTTPS")
+Rel(user, mobile, "Использует", "HTTPS")
+Rel(user, tv, "Использует", "HTTPS")
+Rel(user, console, "Использует", "HTTPS")
+
+' === Клиенты → API Gateway ===
+Rel(web, api_gateway, "Все запросы", "HTTPS/REST")
+Rel(mobile, api_gateway, "Все запросы", "HTTPS/REST")
+Rel(tv, api_gateway, "Все запросы", "HTTPS/REST")
+Rel(console, api_gateway, "Все запросы", "HTTPS/REST")
+
+' === API Gateway → Маршрутизация ===
+Rel(api_gateway, movies, "Маршруты /api/v1/video/*", "REST")
+Rel(api_gateway, events_service, "Маршруты /api/v1/events/*", "REST")
+Rel(api_gateway, monolith, "Маршруты /api/v1/* (остальные)", "REST")
+
+' === Видео сервис ===
+Rel(movies, postgres_video, "Читает/пишет", "SQL")
+Rel(movies, storage, "Загружает/получает", "S3 API")
+Rel(movies, queue, "Публикует события видео", "Kafka")
+
+' === Events сервис (MVP) ===
+Rel(events_service, postgres_events, "Сохраняет события", "SQL")
+Rel(events_service, queue, "Потребляет события", "Kafka")
+Rel(events_service, queue, "Публикует события", "Kafka")
+Rel(events_service, monolith, "Запрашивает данные", "REST")
+
+' === Монолит ===
+Rel(monolith, postgres_monolith, "Читает/пишет", "SQL")
+Rel(monolith, cache, "Кеширует", "Redis Protocol")
+Rel(monolith, queue, "Публикует события", "Kafka")
+Rel(monolith, payment_system, "Обрабатывает платежи", "HTTPS API")
+
+' === Внешние интеграции ===
+Rel(recommendation_engine, api_gateway, "Возвращает рекомендации", "REST")
+Rel(queue, recommendation_engine, "Доставляет события", "Kafka")
+
+' === Событийные потоки ===
+' Монолит публикует события в Kafka
+' Video Service публикует события
+' Events Service потребляет все события
+
+SHOW_LEGEND()
+
+@enduml

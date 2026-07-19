@@ -1,7 +1,7 @@
 version: '3.8'
 
 services:
-  # PostgreSQL Database
+
   postgres:
     image: postgres:14
     container_name: cinemaabyss-postgres
@@ -43,81 +43,13 @@ services:
       KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://kafka:9092
       KAFKA_LISTENERS: PLAINTEXT://0.0.0.0:9092
       KAFKA_ZOOKEEPER_CONNECT: zookeeper:2181
-      KAFKA_CREATE_TOPICS: "movie-events:1:1,user-events:1:1,payment-events:1:1"
+      KAFKA_CREATE_TOPICS: |
+        movie-events:1:1
+        user-events:1:1
+        payment-events:1:1
       KAFKA_AUTO_CREATE_TOPICS_ENABLE: "true"
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock
-    networks:
-      - cinemaabyss-network
-
-  # Monolith Service
-  monolith:
-    build:
-      context: ./src/monolith
-      dockerfile: Dockerfile
-    container_name: cinemaabyss-monolith
-    depends_on:
-      - postgres
-    ports:
-      - "8080:8080"
-    environment:
-      PORT: 8080
-      DB_CONNECTION_STRING: postgres://postgres:postgres_password@postgres:5432/cinemaabyss?sslmode=disable
-    networks:
-      - cinemaabyss-network
-
-  # Movies Microservice
-  movies-service:
-    build:
-      context: ./src/microservices/movies
-      dockerfile: Dockerfile
-    container_name: cinemaabyss-movies-service
-    depends_on:
-      - postgres
-    ports:
-      - "8081:8081"
-    environment:
-      PORT: 8081
-      DB_CONNECTION_STRING: postgres://postgres:postgres_password@postgres:5432/cinemaabyss?sslmode=disable
-    networks:
-      - cinemaabyss-network
-
-  # Events Microservice
-  events-service:
-    build:
-      context: ./src/microservices/events
-      dockerfile: Dockerfile
-    container_name: cinemaabyss-events-service
-    depends_on:
-      - postgres
-      - kafka
-    ports:
-      - "8082:8082"
-    environment:
-      PORT: 8082
-      KAFKA_BROKERS: kafka:9092
-    networks:
-      - cinemaabyss-network
-
-  # Proxy Service (API Gateway)
-  proxy-service:
-    build:
-      context: ./src/microservices/proxy
-      dockerfile: Dockerfile
-    container_name: cinemaabyss-proxy-service
-    depends_on:
-      - monolith
-      - movies-service
-      - events-service
-    ports:
-      - "8000:8000"
-    environment:
-      PORT: 8000
-      MONOLITH_URL: http://monolith:8080
-      MOVIES_SERVICE_URL: http://movies-service:8081
-      EVENTS_SERVICE_URL: http://events-service:8082
-      GRADUAL_MIGRATION: "true"
-      MOVIES_MIGRATION_PERCENT: "50"
     networks:
       - cinemaabyss-network
 
@@ -136,8 +68,171 @@ services:
     networks:
       - cinemaabyss-network
 
+  # Redis для кеширования и сессий
+  redis:
+    image: redis:7-alpine
+    container_name: cinemaabyss-redis
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis-data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - cinemaabyss-network
+
+  # Proxy Service (API Gateway)
+  proxy-service:
+    build:
+      context: ./src/microservices/proxy
+      dockerfile: Dockerfile
+    container_name: cinemaabyss-api-gateway
+    depends_on:
+      - monolith
+      - movies-service
+      # - events-service
+      - redis
+    ports:
+      - "8000:8000"    # Основной порт для API
+      - "8001:8001"    # Метрики / healthcheck
+    environment:
+      PORT: 8000
+      METRICS_PORT: 8001
+      JWT_SECRET: ${JWT_SECRET:-your-super-secret-key-change-me}
+      
+      # URL сервисов для проксирования
+      MONOLITH_URL: http://monolith:8080
+      MOVIES_SERVICE_URL: http://movies-service:8081
+      EVENTS_SERVICE_URL: http://events-service:8082
+      
+      # Настройки API Gateway
+      RATE_LIMIT: "100"
+      RATE_BURST: "200"
+      ENABLE_GRADUAL_MIGRATION: "true"
+      MOVIES_MIGRATION_PERCENT: "50"
+      
+      # Redis для кеширования
+      REDIS_URL: redis://redis:6379
+      
+      # Kafka
+      KAFKA_BROKERS: kafka:9092
+    healthcheck:
+      test: ["CMD", "wget", "-q", "--spider", "http://localhost:8001/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+    networks:
+      - cinemaabyss-network
+
+  # Monolith Service
+  monolith:
+    build:
+      context: ./src/monolith
+      dockerfile: Dockerfile
+    container_name: cinemaabyss-monolith
+    depends_on:
+      postgres:
+        condition: service_healthy
+      kafka:
+        condition: service_started
+      redis:
+        condition: service_healthy
+    ports:
+      - "8080:8080"
+    environment:
+      PORT: 8080
+      DB_CONNECTION_STRING: postgres://postgres:postgres_password@postgres:5432/cinemaabyss?sslmode=disable
+      KAFKA_BROKERS: kafka:9092
+      REDIS_URL: redis://redis:6379
+      
+      # Домены в монолите
+      ENABLE_USER_SERVICE: "true"
+      ENABLE_SUBSCRIPTION_SERVICE: "true"
+      ENABLE_PAYMENT_SERVICE: "true"
+      ENABLE_FAVORITES_SERVICE: "true"
+    healthcheck:
+      test: ["CMD", "wget", "-q", "--spider", "http://localhost:8080/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+    networks:
+      - cinemaabyss-network
+
+  # Movies Microservice
+  movies-service:
+    build:
+      context: ./src/microservices/movies
+      dockerfile: Dockerfile
+    container_name: cinemaabyss-movies-service
+    depends_on:
+      postgres:
+        condition: service_healthy
+      kafka:
+        condition: service_started
+      redis:
+        condition: service_healthy
+    ports:
+      - "8081:8081"
+    environment:
+      PORT: 8081
+      DB_CONNECTION_STRING: postgres://postgres:postgres_password@postgres:5432/cinemaabyss?sslmode=disable
+      KAFKA_BROKERS: kafka:9092
+      REDIS_URL: redis://redis:6379
+    healthcheck:
+      test: ["CMD", "wget", "-q", "--spider", "http://localhost:8081/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+    networks:
+      - cinemaabyss-network
+
+  # Events Microservice
+  events-service:
+    build:
+      context: ./src/microservices/events
+      dockerfile: Dockerfile
+    container_name: cinemaabyss-events-service
+    depends_on:
+      postgres:
+        condition: service_healthy
+      kafka:
+        condition: service_started
+      redis:
+        condition: service_healthy
+    ports:
+      - "8082:8082"
+    environment:
+      PORT: 8082
+      DB_CONNECTION_STRING: postgres://postgres:postgres_password@postgres:5432/cinemaabyss?sslmode=disable
+      KAFKA_BROKERS: kafka:9092
+      REDIS_URL: redis://redis:6379
+    healthcheck:
+      test: ["CMD", "wget", "-q", "--spider", "http://localhost:8082/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+    networks:
+      - cinemaabyss-network
+
+  # Swagger UI для документации API
+  swagger:
+    image: swaggerapi/swagger-ui:latest
+    container_name: cinemaabyss-swagger
+    environment:
+      SWAGGER_JSON: /app/swagger.json
+    volumes:
+      - ./src/api-docs:/app
+    ports:
+      - "8087:8080"
+    networks:
+      - cinemaabyss-network
+
 volumes:
   postgres-data:
+  redis-data:
 
 networks:
   cinemaabyss-network:
