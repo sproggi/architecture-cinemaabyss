@@ -13,15 +13,6 @@ spec:
       http:
         paths:
 
-          # Proxy
-          - path: /api/(.*)
-            pathType: ImplementationSpecific
-            backend:
-              service:
-                name: proxy-service
-                port:
-                  number: 8000
-
           # Events
           - path: /api/events
             pathType: Prefix
@@ -38,7 +29,7 @@ spec:
               service:
                 name: proxy-service
                 port:
-                  number: 8001
+                  number: 8000
 
           # Movies
           - path: /api/movies
@@ -50,7 +41,7 @@ spec:
                   number: 8081
 
           # Monolith
-          - path: /monolith
+          - path: /api/
             pathType: Prefix
             backend:
               service:
@@ -58,11 +49,11 @@ spec:
                 port:
                   number: 8080
           
-          # Swagger
-          - path: /docs
-            pathType: Prefix
+          # Proxy
+          - path: /api/(.*)
+            pathType: ImplementationSpecific
             backend:
               service:
-                name: swagger
+                name: proxy-service
                 port:
-                  number: 8080
+                  number: 8000

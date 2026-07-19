@@ -98,7 +98,7 @@ eventsService:
     pullPolicy: Always
   replicas: 1
   kafka:
-    brokers: "kafka:9092"
+    brokers: "kafka.cinemaabyss.svc.cluster.local:9092"
   redis:
     url: "redis://redis:6379"
   resources:
@@ -173,35 +173,36 @@ ingress:
   hosts:
     - host: cinemaabyss.example.com
       paths:
-        # 1. Proxy (API Gateway) - с регулярным выражением
-        - path: /api/(.*)
-          pathType: ImplementationSpecific
-          service: proxy-service
-          port: 8000
-
-        # 2. Events Service
+        
+        # Events Service
         - path: /api/events
           pathType: Prefix
           service: events-service
           port: 8082
 
-        # 3. Health Check для Proxy (ВАЖНО!)
+        # Health Check для Proxy
         - path: /health
           pathType: Prefix
           service: proxy-service
-          port: 8001
+          port: 8000
 
-        # 4. Movies Service (ВАШ СЛУЧАЙ)
+        # Movies Service
         - path: /api/movies
           pathType: Prefix
           service: movies-service
           port: 8081
 
-        # 5. Monolith (если нужен)
-        - path: /monolith
+        # Monolith
+        - path: /api/
           pathType: Prefix
           service: monolith
           port: 8080
+        
+        # Proxy (API Gateway)
+        - path: /api/(.*)
+          pathType: ImplementationSpecific
+          service: proxy-service
+          port: 8000
 
 # Application configuration
 config:
